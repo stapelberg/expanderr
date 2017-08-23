@@ -20,6 +20,8 @@ Of course, the return values match the enclosing function signature, functions
 returning more than one argument are supported, and the local scope is
 considered to ensure that your code still compiles.
 
+![screencast](screencast.gif)
+
 ## Setup
 
 Start by running `go get -u github.com/stapelberg/expanderr`. Then, follow the
