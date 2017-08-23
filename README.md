@@ -1,19 +1,21 @@
 # expanderr
 
+<img src="https://michael.stapelberg.de/expanderr/expanderr.svg" width="300" height="288" align="right" alt="expanderr logo">
+
 The expanderr (think “expander”, pronounced with a pirate accent) is a tool
 which expands the Go Call Expression under your cursor to check errors. As an
 example, assuming your cursor is positioned on this call expression:
 
 ```go
-	os.Remove("/tmp/state.bin")
+os.Remove("/tmp/state.bin")
 ```
 
 …invoking the expanderr will leave you with this If Statement instead:
 
 ```go
-	if err := os.Remove("/tmp/state.bin"); err != nil {
-		return err
-	}
+if err := os.Remove("/tmp/state.bin"); err != nil {
+	return err
+}
 ```
 
 Of course, the return values match the enclosing function signature, functions
