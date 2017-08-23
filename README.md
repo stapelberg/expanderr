@@ -1,5 +1,7 @@
 # expanderr
 
+[![Go Report Card](https://goreportcard.com/badge/github.com/stapelberg/expanderr)](https://goreportcard.com/report/github.com/stapelberg/expanderr)
+
 <img src="https://michael.stapelberg.de/expanderr/expanderr.svg" width="300" height="288" align="right" alt="expanderr logo">
 
 The expanderr (think “expander”, pronounced with a pirate accent) is a tool
