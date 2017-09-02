@@ -2,6 +2,8 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
+	"flag"
 	"go/build"
 	"io/ioutil"
 	"path/filepath"
@@ -42,6 +44,8 @@ func TestExpand(t *testing.T) {
 			// Cannot be safely run in parallel as long as build.Default is overridden
 			// t.Parallel()
 
+			flag.Set("format", "source")
+
 			wantContents, err := ioutil.ReadFile(strings.Replace(entry.fn, ".got", ".want", 1))
 			if err != nil {
 				t.Fatal(err)
@@ -65,6 +69,40 @@ func TestExpand(t *testing.T) {
 			}
 
 			if got, want := buf.String(), string(wantContents); got != want {
+				t.Fatalf("unexpected result: have:\n%s\nwant:\n%s", got, want)
+			}
+
+			// Test the JSON output format as well.
+
+			buf.Reset()
+			flag.Set("format", "json")
+
+			gotContents, err := ioutil.ReadFile(entry.fn)
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn); err != nil {
+				t.Fatal(err)
+			}
+
+			var change struct {
+				Start int      `json:"start"`
+				End   int      `json:"end"`
+				Lines []string `json:"lines"`
+			}
+			if err := json.Unmarshal(buf.Bytes(), &change); err != nil {
+				t.Fatal(err)
+			}
+
+			lines := strings.Split(string(gotContents), "\n")
+
+			replaced := make([]string, len(lines[:change.Start-1]))
+			copy(replaced, lines)
+			replaced = append(replaced, change.Lines...)
+			replaced = append(replaced, lines[change.End:]...)
+
+			if got, want := strings.Join(replaced, "\n"), string(wantContents); got != want {
 				t.Fatalf("unexpected result: have:\n%s\nwant:\n%s", got, want)
 			}
 		})

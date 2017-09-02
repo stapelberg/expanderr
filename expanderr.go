@@ -8,6 +8,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
@@ -561,6 +562,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 	if _, err := src.Write(b[:subject.Pos()-1]); err != nil {
 		return err
 	}
+	var newEnd int
 	// Print the replacement
 	for _, node := range repl {
 		// Hack: inline comments (e.g. os.Remove("/foo" /* path */)) get lost
@@ -573,6 +575,8 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 		if err := format.Node(&ceFmt, e.fset, e.ce); err != nil {
 			return fmt.Errorf("formatting replacement: %v", err)
 		}
+
+		newEnd += len(strings.Split(stmtFmt.String(), "\n"))
 
 		ceOrig := string(b[e.ce.Pos()-1 : e.ce.End()-1])
 		if _, err := src.Write([]byte(strings.Replace(stmtFmt.String(), ceFmt.String(), ceOrig, 1))); err != nil {
@@ -595,14 +599,39 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 		return fmt.Errorf("formatting source: %v.\nsource:\n%s", err, src.String())
 	}
 
-	if _, err := w.Write(formatted); err != nil {
-		return err
+	if *formatFlag == "json" {
+		start := e.fset.Position(subject.Pos()).Line
+		end := e.fset.Position(subject.End()).Line
+		var lines []string
+		for idx, line := range strings.Split(string(formatted), "\n") {
+			if idx >= start-1 && idx < start-1+newEnd {
+				lines = append(lines, line)
+			}
+		}
+		if err := json.NewEncoder(w).Encode(struct {
+			Start int      `json:"start"`
+			End   int      `json:"end"`
+			Lines []string `json:"lines"`
+		}{
+			Start: start,
+			End:   end,
+			Lines: lines,
+		}); err != nil {
+			return err
+		}
+	} else {
+		if _, err := w.Write(formatted); err != nil {
+			return err
+		}
 	}
 
 	return nil
 }
 
-var wFlag = flag.String("w", "", "write")
+var (
+	wFlag      = flag.String("w", "", "write")
+	formatFlag = flag.String("format", "", "output format (source, json). defaults to 'source'")
+)
 
 var cpuprofile = flag.String("cpuprofile", "", "write cpu profile `file`")
 
