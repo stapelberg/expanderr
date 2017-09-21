@@ -39,10 +39,10 @@ From now on, use `C-c C-e` to invoke the expanderr.
 
 ## Opportunities to contribute
 
-* vim integration (issue #1)
+* [vim integration](https://github.com/stapelberg/expanderr/issues/1)
 * use log.Fatal if within main()
 * integration for your favorite editor
-* investigate support for the errors package (which one? https://github.com/pkg/errors?)
+* [investigate support for the errors package](https://github.com/stapelberg/expanderr/issues/8)
 
 ## How does this differ from goreturns?
 
