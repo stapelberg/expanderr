@@ -186,6 +186,40 @@ func newZeroValueNode(typ ast.Expr) ast.Expr {
 	return nil
 }
 
+// Like newZeroValueNode, but with type information.
+//
+// TODO: can we safely get rid of newZeroValueNode or does it handle cases which
+// would otherwise go unhandled?
+func newZeroValueNodeTypeName(id *ast.Ident, name *types.TypeName) ast.Expr {
+	switch t := name.Type().Underlying().(type) {
+	case *types.Struct:
+		return &ast.Ident{Name: id.Name + "{}"}
+
+	case *types.Interface:
+		return &ast.Ident{Name: "nil"}
+
+	case *types.Basic:
+		switch t.Kind() {
+		case types.Int, types.Int8, types.Int16, types.Int32, types.Int64,
+			types.Uint, types.Uint8, types.Uint16, types.Uint32, types.Uint64, types.Uintptr:
+			return &ast.BasicLit{Kind: token.INT, Value: "0"}
+
+		case types.Float32, types.Float64:
+			return &ast.BasicLit{Kind: token.FLOAT, Value: "0"}
+
+		case types.Complex64, types.Complex128:
+			return &ast.BasicLit{Kind: token.IMAG, Value: "0"}
+
+		case types.Bool:
+			return &ast.Ident{Name: "false"}
+
+		case types.String:
+			return &ast.BasicLit{Kind: token.STRING, Value: `""`}
+		}
+	}
+	return nil
+}
+
 // fallbackImporter tries to import using importer first, falling back to
 // srcImporter on any error. This allows us to load binary files (significantly
 // faster) where possible, but import from source where necessary.
@@ -341,6 +375,15 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 			e.results[idx] = &ast.Ident{Name: "err"}
 		} else {
 			e.results[idx] = newZeroValueNode(res.Type)
+			if e.results[idx] == nil {
+				// We could not figure out from the AST what the type is, so
+				// it’s not a builtin type, array type or pointer type.
+				if id, ok := res.Type.(*ast.Ident); ok {
+					if tn, ok := e.info.Uses[id].(*types.TypeName); ok {
+						e.results[idx] = newZeroValueNodeTypeName(id, tn)
+					}
+				}
+			}
 		}
 	}
 
