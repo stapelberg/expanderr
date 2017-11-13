@@ -33,7 +33,7 @@ section for the editor you use:
 
 ### Emacs
 
-Add `(load "~/go/src/github.com/stapelberg/expanderr/expanderr.el")` to your Emacs configuration.
+Add `(load "~/go/src/github.com/stapelberg/expanderr/lisp/go-expanderr.el")` to your Emacs configuration.
 
 From now on, use `C-c C-e` to invoke the expanderr.
 
