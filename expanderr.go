@@ -349,7 +349,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 	conf := types.Config{
 		Importer: defaultImporter(),
 		Error: func(err error) {
-			log.Printf("ignoring type-checking error: %v", err)
+			// log.Printf("ignoring type-checking error: %v", err)
 		}, // keep going on errors
 	}
 	pkg, _ := conf.Check(pkgname, e.fset, files, e.info)
@@ -398,7 +398,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 }
 
 // this function either returns just the return values of the function or, if there are no errors
-// returned, will also add in the no-error-return-template
+// returned, will also add in the no-error-callback
 func (e *expansion) getFinalOutput(noReturnStr string, errName string) ([]ast.Stmt, error) {
 	var normalReturn = &ast.ReturnStmt{Results: e.results}
 
@@ -758,6 +758,18 @@ func main() {
 	}
 
 	if err := logic(o, &build.Default, posn, *noErrReturnStr); err != nil {
+		if *formatFlag == "json" {
+			jsonErr := json.NewEncoder(o).Encode(struct {
+				Error string `json:"error"`
+			}{
+				Error: err.Error(),
+			})
+			if jsonErr != nil {
+				log.Fatal(err)
+				log.Fatal(jsonErr)
+			}
+			return
+		}
 		log.Fatal(err)
 	}
 }
