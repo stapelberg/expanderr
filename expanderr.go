@@ -395,30 +395,49 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 	return nil
 }
 
-type noErrTemplateFields struct {
-	Err    string // generally just "err", but not something the caller controlls
-	Return string // the entire return string
+// this function either returns just the return values of the function or, if there are no errors
+// returned, will also add in the no-error-return-template
+func (e *expansion) getFinalOutput(noReturnTempl *template.Template, errName string) (ast.Stmt, error) {
+	var normalReturn ast.Stmt = &ast.ReturnStmt{Results: e.results}
+
+	var returnsError = true
+	if res := e.caller.Results; res == nil {
+		returnsError = false
+	} else if list := res.List; len(list) == 0 {
+		returnsError = false
+	} else if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name != "error" {
+		returnsError = false
+	}
+
+	if returnsError {
+		return normalReturn, nil
+	}
+
+	if noReturnTempl == nil { // default output when no error retuned
+		return &ast.ExprStmt{X: &ast.Ident{Name: "panic(err)"}}, nil
+	}
+
+	var retBuf bytes.Buffer
+	if err := format.Node(&retBuf, e.fset, normalReturn); err != nil {
+		return nil, fmt.Errorf("formating return values: %v", err)
+	}
+
+	var templBuf bytes.Buffer
+	fields := struct {
+		Err    string // generally just "err", but not something the caller controls
+		Return string // the entire return string
+	}{
+		Err:    errName,
+		Return: retBuf.String(),
+	}
+	if err := noReturnTempl.Execute(&templBuf, fields); err != nil {
+		return nil, fmt.Errorf("executing no-error-template: %v", err)
+	}
+
+	return &ast.ExprStmt{X: &ast.Ident{Name: templBuf.String()}}, nil
 }
 
-func noErrorReturn(fields noErrTemplateFields) (string, error) {
-	if *noErrTemplate == "" {
-		return "panic(err.Error())", nil
-	}
-
-	templ, err := template.New("noErr").Parse(*noErrTemplate)
-	if err != nil {
-		return "", err
-	}
-
-	var buf bytes.Buffer
-	if err := templ.Execute(&buf, fields); err != nil {
-		return "", err
-	}
-
-	return buf.String(), nil
-}
-
-func logic(w io.Writer, buildctx *build.Context, posn string) error {
+func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *template.Template) error {
 	e := expansion{
 		fset: token.NewFileSet(),
 	}
@@ -497,28 +516,9 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 			}
 		}
 
-		var outputStmt ast.Stmt = &ast.ReturnStmt{Results: e.results}
-
-		var returnsError = true
-		if res := e.caller.Results; res == nil {
-			returnsError = false
-		} else if list := res.List; len(list) == 0 {
-			returnsError = false
-		} else if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name != "error" {
-			returnsError = false
-		}
-
-		if !returnsError {
-			var retBuf bytes.Buffer
-			if err := format.Node(&retBuf, e.fset, outputStmt); err != nil {
-				return fmt.Errorf("formating return values: %v", err)
-			}
-
-			outStr, err := noErrorReturn(noErrTemplateFields{Return: retBuf.String(), Err: "err"})
-			if err != nil {
-				return fmt.Errorf("processing no-error-template: %v", err)
-			}
-			outputStmt = &ast.ExprStmt{X: &ast.Ident{Name: outStr}}
+		outputStmt, err := e.getFinalOutput(noReturnTempl, "err")
+		if err != nil {
+			return err
 		}
 
 		// e.g. os.Remove(…) → if err := os.Remove(…); err != nil { return 0, err }
@@ -578,28 +578,9 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 			as.Lhs = append(as.Lhs, &ast.Ident{Name: "err"})
 		}
 
-		var outputStmt ast.Stmt = &ast.ReturnStmt{Results: e.results}
-
-		var returnsError = true
-		if res := e.caller.Results; res == nil {
-			returnsError = false
-		} else if list := res.List; len(list) == 0 {
-			returnsError = false
-		} else if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name != "error" {
-			returnsError = false
-		}
-
-		if !returnsError {
-			var retBuf bytes.Buffer
-			if err := format.Node(&retBuf, e.fset, outputStmt); err != nil {
-				return fmt.Errorf("formating return values: %v", err)
-			}
-
-			outStr, err := noErrorReturn(noErrTemplateFields{Return: retBuf.String(), Err: "err"})
-			if err != nil {
-				return fmt.Errorf("processing no-error-template: %v", err)
-			}
-			outputStmt = &ast.ExprStmt{X: &ast.Ident{Name: outStr}}
+		outputStmt, err := e.getFinalOutput(noReturnTempl, "err")
+		if err != nil {
+			return err
 		}
 
 		if !onlyUnderscore && as.Tok == token.DEFINE {
@@ -741,7 +722,7 @@ var (
 	wFlag         = flag.String("w", "", "write")
 	formatFlag    = flag.String("format", "", "output format (source, json). defaults to 'source'")
 	cpuprofile    = flag.String("cpuprofile", "", "write cpu profile `file`")
-	noErrTemplate = flag.String("no-error-template", "", "template to be used if there is no error return value. defaults to a panic")
+	noErrTemplate = flag.String("no-error-template", "", "go text/template to be used if there is no error return value. ex: 'log.Fatal({{.Err}}.Error())\n{{.Return}}'. defaults to 'panic(err)'")
 )
 
 func main() {
@@ -775,7 +756,18 @@ func main() {
 		o = f
 	}
 
-	if err := logic(o, &build.Default, posn); err != nil {
+	var (
+		templ *template.Template
+		err   error
+	)
+	if *noErrTemplate != "" {
+		templ, err = template.New("noErr").Parse(*noErrTemplate)
+		if err != nil {
+			log.Fatalf("error parsing no-error-template: %v", err)
+		}
+	}
+
+	if err = logic(o, &build.Default, posn, templ); err != nil {
 		log.Fatal(err)
 	}
 }

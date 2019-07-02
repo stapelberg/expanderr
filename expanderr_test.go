@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"text/template"
 )
 
 func TestExpand(t *testing.T) {
@@ -50,11 +51,18 @@ func TestExpand(t *testing.T) {
 			// t.Parallel()
 
 			flag.Set("format", "source")
-			flag.Set("no-error-template", entry.errtmpl)
 
 			wantContents, err := ioutil.ReadFile(strings.Replace(entry.fn, ".got", ".want", 1))
 			if err != nil {
 				t.Fatal(err)
+			}
+
+			var noErrTempl *template.Template
+			if entry.errtmpl != "" {
+				noErrTempl, err = template.New("noErr").Parse(entry.errtmpl)
+				if err != nil {
+					t.Fatal(err)
+				}
 			}
 
 			gopath, err := filepath.Abs(filepath.Join(strings.Split(entry.fn, "/")[:2]...))
@@ -70,7 +78,7 @@ func TestExpand(t *testing.T) {
 			}
 
 			var buf bytes.Buffer
-			if err := logic(&buf, &buildctx, entry.fn+entry.posn); err != nil {
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn, noErrTempl); err != nil {
 				t.Fatal(err)
 			}
 
@@ -88,7 +96,7 @@ func TestExpand(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := logic(&buf, &buildctx, entry.fn+entry.posn); err != nil {
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn, noErrTempl); err != nil {
 				t.Fatal(err)
 			}
 

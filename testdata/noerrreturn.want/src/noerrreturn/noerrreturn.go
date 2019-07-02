@@ -7,7 +7,7 @@ import (
 
 func logic() int {
 	if err := os.Remove("/tmp/foo"); err != nil {
-		panic(err.Error())
+		panic(err)
 	}
 	return 42
 }

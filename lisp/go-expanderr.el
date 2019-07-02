@@ -25,12 +25,12 @@
           (with-current-buffer patchbuf
             (erase-buffer))
 
-    (save-buffer)
+	  (save-buffer)
           (setq expanderr-command go-expanderr-command)
           (setq our-expanderr-args (list "-w" tmpfile
-           (concat
-            (file-truename buffer-file-name)
-            (format ":#%d" (position-bytes (point))))))
+					 (concat
+					  (file-truename buffer-file-name)
+					  (format ":#%d" (position-bytes (point))))))
           (message "Calling expanderr: %s %s" expanderr-command our-expanderr-args)
           ;; We're using errbuf for the mixed stdout and stderr output. This
           ;; is not an issue because expanderr -w does not produce any stdout
@@ -49,6 +49,6 @@
       (delete-file tmpfile))))
 
 (add-hook 'go-mode-hook (lambda ()
-        (local-set-key (kbd "C-c C-e") #'go-expanderr)))
+			  (local-set-key (kbd "C-c C-e") #'go-expanderr)))
 
 (provide 'go-expanderr)
