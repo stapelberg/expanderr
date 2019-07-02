@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
+	"text/template"
 	"unicode"
 
 	"github.com/stapelberg/expanderr/internal/srcimporter"
@@ -61,11 +62,6 @@ func parseQueryPos(fset *token.FileSet, root *ast.File, pos string, needExact bo
 		return nil, fmt.Errorf("file %s not found in loaded program", filename)
 	}
 
-	start, end, err := fileOffsetToPos(file, startOffset, endOffset)
-	if err != nil {
-		return nil, err
-	}
-
 	// decrement startOffset as long as it points to <whitespace>|")", so that PathEnclosingInterval returns an ast.CallExpr
 	//log.Printf("filename = %q, startOffset = %d, endOffset = %d\n", filename, startOffset, endOffset)
 	b, err := ioutil.ReadFile(filename)
@@ -80,7 +76,7 @@ func parseQueryPos(fset *token.FileSet, root *ast.File, pos string, needExact bo
 	}
 	//log.Printf("after: %q", string(b[startOffset-5:endOffset+5]))
 
-	start, end, err = fileOffsetToPos(file, startOffset, endOffset)
+	start, end, err := fileOffsetToPos(file, startOffset, endOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -366,8 +362,17 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 		return err
 	}
 
+	e.ce = callExprAtPath(e.path)
+	if e.ce == nil {
+		return nil
+	}
+	e.callee, err = signatureOf(e.info, e.ce)
+	if err != nil {
+		return err
+	}
+
 	if e.caller.Results == nil {
-		return fmt.Errorf("current function returns no values, cannot return error")
+		return nil
 	}
 
 	e.results = make([]ast.Expr, len(e.caller.Results.List))
@@ -387,13 +392,30 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 			}
 		}
 	}
+	return nil
+}
 
-	e.ce = callExprAtPath(e.path)
-	if e.ce == nil {
-		return fmt.Errorf("no ast.CallExpr found")
+type noErrTemplateFields struct {
+	Err    string // generally just "err", but not something the caller controlls
+	Return string // the entire return string
+}
+
+func noErrorReturn(fields noErrTemplateFields) (string, error) {
+	if *noErrTemplate == "" {
+		return "panic(err.Error())", nil
 	}
-	e.callee, err = signatureOf(e.info, e.ce)
-	return err
+
+	templ, err := template.New("noErr").Parse(*noErrTemplate)
+	if err != nil {
+		return "", err
+	}
+
+	var buf bytes.Buffer
+	if err := templ.Execute(&buf, fields); err != nil {
+		return "", err
+	}
+
+	return buf.String(), nil
 }
 
 func logic(w io.Writer, buildctx *build.Context, posn string) error {
@@ -467,14 +489,38 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 	case 0:
 		// nothing to replace, i.e. keep the original *ast.CallExpr
 		repl = []ast.Node{e.ce}
-	case 1: // TODO: verify the return value is of type error
-
+	case 1:
 		// TODO: check if this CallExpr is within an AssignStmt. if so, replace the AssignStmt instead
 		if parent := e.parent(subject); parent != nil {
 			if stmt, ok := parent.(*ast.AssignStmt); ok {
 				subject = stmt
 			}
 		}
+
+		var outputStmt ast.Stmt = &ast.ReturnStmt{Results: e.results}
+
+		var returnsError = true
+		if res := e.caller.Results; res == nil {
+			returnsError = false
+		} else if list := res.List; len(list) == 0 {
+			returnsError = false
+		} else if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name != "error" {
+			returnsError = false
+		}
+
+		if !returnsError {
+			var retBuf bytes.Buffer
+			if err := format.Node(&retBuf, e.fset, outputStmt); err != nil {
+				return fmt.Errorf("formating return values: %v", err)
+			}
+
+			outStr, err := noErrorReturn(noErrTemplateFields{Return: retBuf.String(), Err: "err"})
+			if err != nil {
+				return fmt.Errorf("processing no-error-template: %v", err)
+			}
+			outputStmt = &ast.ExprStmt{X: &ast.Ident{Name: outStr}}
+		}
+
 		// e.g. os.Remove(…) → if err := os.Remove(…); err != nil { return 0, err }
 		repl = []ast.Node{&ast.IfStmt{
 			Init: &ast.AssignStmt{
@@ -488,9 +534,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 				Y:  &ast.Ident{Name: "nil"},
 			},
 			Body: &ast.BlockStmt{
-				List: []ast.Stmt{
-					&ast.ReturnStmt{Results: e.results},
-				},
+				List: []ast.Stmt{outputStmt},
 			},
 		}}
 	default:
@@ -534,6 +578,30 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 			as.Lhs = append(as.Lhs, &ast.Ident{Name: "err"})
 		}
 
+		var outputStmt ast.Stmt = &ast.ReturnStmt{Results: e.results}
+
+		var returnsError = true
+		if res := e.caller.Results; res == nil {
+			returnsError = false
+		} else if list := res.List; len(list) == 0 {
+			returnsError = false
+		} else if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name != "error" {
+			returnsError = false
+		}
+
+		if !returnsError {
+			var retBuf bytes.Buffer
+			if err := format.Node(&retBuf, e.fset, outputStmt); err != nil {
+				return fmt.Errorf("formating return values: %v", err)
+			}
+
+			outStr, err := noErrorReturn(noErrTemplateFields{Return: retBuf.String(), Err: "err"})
+			if err != nil {
+				return fmt.Errorf("processing no-error-template: %v", err)
+			}
+			outputStmt = &ast.ExprStmt{X: &ast.Ident{Name: outStr}}
+		}
+
 		if !onlyUnderscore && as.Tok == token.DEFINE {
 			// Insert a new *ast.IfStmt after the *ast.CallExpr.
 			repl = []ast.Node{
@@ -545,9 +613,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 						Y:  &ast.Ident{Name: "nil"},
 					},
 					Body: &ast.BlockStmt{
-						List: []ast.Stmt{
-							&ast.ReturnStmt{Results: e.results},
-						},
+						List: []ast.Stmt{outputStmt},
 					},
 				},
 			}
@@ -672,11 +738,11 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 }
 
 var (
-	wFlag      = flag.String("w", "", "write")
-	formatFlag = flag.String("format", "", "output format (source, json). defaults to 'source'")
+	wFlag         = flag.String("w", "", "write")
+	formatFlag    = flag.String("format", "", "output format (source, json). defaults to 'source'")
+	cpuprofile    = flag.String("cpuprofile", "", "write cpu profile `file`")
+	noErrTemplate = flag.String("no-error-template", "", "template to be used if there is no error return value. defaults to a panic")
 )
-
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile `file`")
 
 func main() {
 	flag.Parse()
