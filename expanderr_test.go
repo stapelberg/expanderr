@@ -43,7 +43,6 @@ func TestExpand(t *testing.T) {
 		{"PresentSingle", "testdata/presentsingle.got/src/presentsingle/presentsingle.go", ":#90", ""},
 		{"PresentDouble", "testdata/presentdouble.got/src/presentdouble/presentdouble.go", ":#105", ""},
 		{"CustomTypes", "testdata/customtypes.got/src/customtypes/customtypes.go", ":#191", ""},
-		// {"Testing", "testdata/testing.got/src/testing/testing.go", ":#126"},
 	} {
 		entry := entry // copy
 		t.Run(entry.name, func(t *testing.T) {
