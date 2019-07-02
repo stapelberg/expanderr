@@ -364,7 +364,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 
 	e.ce = callExprAtPath(e.path)
 	if e.ce == nil {
-		return nil
+		return fmt.Errorf("no ast.CallExpr found")
 	}
 	e.callee, err = signatureOf(e.info, e.ce)
 	if err != nil {
