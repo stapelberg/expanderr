@@ -27,6 +27,7 @@ func TestExpand(t *testing.T) {
 		{"VariableAndError", "testdata/varanderror.got/src/varanderror/varanderror.go", ":#148"},
 		{"Comment", "testdata/comment.got/src/comment/comment.go", ":#90"},
 		{"CommentInline", "testdata/commentinline.got/src/commentinline/commentinline.go", ":#109"},
+		{"FunctionLiteral", "testdata/functionliteral.got/src/functionliteral/functionliteral.go", ":#87"},
 		// The following test spreads out one package over two files, exercising
 		// the code path for loading multiple files.
 		{"2Files1Pkg", "testdata/pkg.got/src/pkg/pkg2.go", ":#49"},

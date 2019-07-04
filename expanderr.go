@@ -112,6 +112,9 @@ func signatureOf(info *types.Info, e *ast.CallExpr) (*types.Signature, error) {
 		case *types.Func:
 			// This is a static function call
 			return obj.Type().(*types.Signature), nil
+		case *types.Var:
+			// This is a function literal call
+			return obj.Type().(*types.Signature), nil
 		default:
 			// TODO: better error message: the function signature for <TODO> could not be found
 			//return nil, fmt.Errorf("unhandled: info.Uses[%v] = %T", funexpr, obj)
@@ -366,6 +369,15 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 		return err
 	}
 
+	e.ce = callExprAtPath(e.path)
+	if e.ce == nil {
+		return fmt.Errorf("no ast.CallExpr found")
+	}
+	e.callee, err = signatureOf(e.info, e.ce)
+	if err != nil {
+		return err
+	}
+
 	if e.caller.Results == nil {
 		return fmt.Errorf("current function returns no values, cannot return error")
 	}
@@ -387,13 +399,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 			}
 		}
 	}
-
-	e.ce = callExprAtPath(e.path)
-	if e.ce == nil {
-		return fmt.Errorf("no ast.CallExpr found")
-	}
-	e.callee, err = signatureOf(e.info, e.ce)
-	return err
+	return nil
 }
 
 func logic(w io.Writer, buildctx *build.Context, posn string) error {
