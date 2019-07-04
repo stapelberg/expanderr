@@ -9,7 +9,6 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"text/template"
 )
 
 func TestExpand(t *testing.T) {
@@ -17,10 +16,10 @@ func TestExpand(t *testing.T) {
 	// t.Parallel()
 
 	for _, entry := range []struct {
-		name    string
-		fn      string
-		posn    string
-		errtmpl string
+		name        string
+		fn          string
+		posn        string
+		errcallback string
 	}{
 		{"SingleErrorAfter", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#90", ""},
 		{"SingleErrorBefore", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#69", ""},
@@ -31,7 +30,7 @@ func TestExpand(t *testing.T) {
 		{"CommentInline", "testdata/commentinline.got/src/commentinline/commentinline.go", ":#109", ""},
 		{"NoReturnCaller", "testdata/noreturncaller.got/src/noreturncaller/noreturncaller.go", ":#77", ""},
 		{"NoErrReturn", "testdata/noerrreturn.got/src/noerrreturn/noerrreturn.go", ":#81", ""},
-		{"ReturnErrTemplate", "testdata/returnerrtemplate.got/src/returnerrtemplate/returnerrtemplate.go", ":#101", "mylog.Fatal({{.Err}}.Error())\n{{.Return}}"},
+		{"ReturnErrCall", "testdata/returnerrcall.got/src/returnerrcall/returnerrcall.go", ":#101", "log.Fatal(err.Error())"},
 		// The following test spreads out one package over two files, exercising
 		// the code path for loading multiple files.
 		{"2Files1Pkg", "testdata/pkg.got/src/pkg/pkg2.go", ":#49", ""},
@@ -57,14 +56,6 @@ func TestExpand(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			var noErrTempl *template.Template
-			if entry.errtmpl != "" {
-				noErrTempl, err = template.New("noErr").Parse(entry.errtmpl)
-				if err != nil {
-					t.Fatal(err)
-				}
-			}
-
 			gopath, err := filepath.Abs(filepath.Join(strings.Split(entry.fn, "/")[:2]...))
 			if err != nil {
 				t.Fatal(err)
@@ -78,7 +69,7 @@ func TestExpand(t *testing.T) {
 			}
 
 			var buf bytes.Buffer
-			if err := logic(&buf, &buildctx, entry.fn+entry.posn, noErrTempl); err != nil {
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn, entry.errcallback); err != nil {
 				t.Fatal(err)
 			}
 
@@ -96,7 +87,7 @@ func TestExpand(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := logic(&buf, &buildctx, entry.fn+entry.posn, noErrTempl); err != nil {
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn, entry.errcallback); err != nil {
 				t.Fatal(err)
 			}
 

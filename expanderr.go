@@ -26,7 +26,6 @@ import (
 	"path/filepath"
 	"runtime/pprof"
 	"strings"
-	"text/template"
 	"unicode"
 
 	"github.com/stapelberg/expanderr/internal/srcimporter"
@@ -397,8 +396,8 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 
 // this function either returns just the return values of the function or, if there are no errors
 // returned, will also add in the no-error-return-template
-func (e *expansion) getFinalOutput(noReturnTempl *template.Template, errName string) (ast.Stmt, error) {
-	var normalReturn ast.Stmt = &ast.ReturnStmt{Results: e.results}
+func (e *expansion) getFinalOutput(noReturnStr string, errName string) ([]ast.Stmt, error) {
+	var normalReturn = &ast.ReturnStmt{Results: e.results}
 
 	var returnsError = true
 	if res := e.caller.Results; res == nil {
@@ -410,34 +409,32 @@ func (e *expansion) getFinalOutput(noReturnTempl *template.Template, errName str
 	}
 
 	if returnsError {
-		return normalReturn, nil
+		return []ast.Stmt{normalReturn}, nil
 	}
 
-	if noReturnTempl == nil { // default output when no error retuned
-		return &ast.ExprStmt{X: &ast.Ident{Name: "panic(err)"}}, nil
+	if noReturnStr == "" { // default output when no error retuned
+		return []ast.Stmt{&ast.ExprStmt{
+			X: &ast.CallExpr{
+				Fun: &ast.Ident{Name: "panic"},
+				Args: []ast.Expr{
+					&ast.Ident{Name: "err"},
+				},
+			},
+		}}, nil
 	}
 
-	var retBuf bytes.Buffer
-	if err := format.Node(&retBuf, e.fset, normalReturn); err != nil {
-		return nil, fmt.Errorf("formating return values: %v", err)
+	noReturnExpr, err := parser.ParseExpr(noReturnStr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing template result into ast: %v", err)
 	}
 
-	var templBuf bytes.Buffer
-	fields := struct {
-		Err    string // generally just "err", but not something the caller controls
-		Return string // the entire return string
-	}{
-		Err:    errName,
-		Return: retBuf.String(),
-	}
-	if err := noReturnTempl.Execute(&templBuf, fields); err != nil {
-		return nil, fmt.Errorf("executing no-error-template: %v", err)
-	}
-
-	return &ast.ExprStmt{X: &ast.Ident{Name: templBuf.String()}}, nil
+	return []ast.Stmt{
+		&ast.ExprStmt{X: noReturnExpr},
+		normalReturn,
+	}, nil
 }
 
-func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *template.Template) error {
+func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error {
 	e := expansion{
 		fset: token.NewFileSet(),
 	}
@@ -516,7 +513,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *tem
 			}
 		}
 
-		outputStmt, err := e.getFinalOutput(noReturnTempl, "err")
+		outputStmt, err := e.getFinalOutput(noReturnStr, "err")
 		if err != nil {
 			return err
 		}
@@ -534,7 +531,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *tem
 				Y:  &ast.Ident{Name: "nil"},
 			},
 			Body: &ast.BlockStmt{
-				List: []ast.Stmt{outputStmt},
+				List: outputStmt,
 			},
 		}}
 	default:
@@ -578,7 +575,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *tem
 			as.Lhs = append(as.Lhs, &ast.Ident{Name: "err"})
 		}
 
-		outputStmt, err := e.getFinalOutput(noReturnTempl, "err")
+		outputStmt, err := e.getFinalOutput(noReturnStr, "err")
 		if err != nil {
 			return err
 		}
@@ -594,7 +591,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *tem
 						Y:  &ast.Ident{Name: "nil"},
 					},
 					Body: &ast.BlockStmt{
-						List: []ast.Stmt{outputStmt},
+						List: outputStmt,
 					},
 				},
 			}
@@ -658,8 +655,9 @@ func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *tem
 		// Hack: inline comments (e.g. os.Remove("/foo" /* path */)) get lost
 		// when formatting node, so we string-replace the formatted CallExpr
 		// with the original CallExpr.
+
 		var stmtFmt, ceFmt bytes.Buffer
-		if err := format.Node(&stmtFmt, e.fset, node); err != nil {
+		if err := format.Node(&stmtFmt, token.NewFileSet(), node); err != nil {
 			return fmt.Errorf("formatting replacement: %v", err)
 		}
 		if err := format.Node(&ceFmt, e.fset, e.ce); err != nil {
@@ -719,10 +717,10 @@ func logic(w io.Writer, buildctx *build.Context, posn string, noReturnTempl *tem
 }
 
 var (
-	wFlag         = flag.String("w", "", "write")
-	formatFlag    = flag.String("format", "", "output format (source, json). defaults to 'source'")
-	cpuprofile    = flag.String("cpuprofile", "", "write cpu profile `file`")
-	noErrTemplate = flag.String("no-error-template", "", "go text/template to be used if there is no error return value. ex: 'log.Fatal({{.Err}}.Error())\n{{.Return}}'. defaults to 'panic(err)'")
+	wFlag          = flag.String("w", "", "write")
+	formatFlag     = flag.String("format", "", "output format (source, json). defaults to 'source'")
+	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile `file`")
+	noErrReturnStr = flag.String("no-error-callback", "", "function call to be used if there is no error return value. ex: 'log.Fatalf(\"boom: %v\", err)'. defaults to 'panic(err)'")
 )
 
 func main() {
@@ -756,18 +754,7 @@ func main() {
 		o = f
 	}
 
-	var (
-		templ *template.Template
-		err   error
-	)
-	if *noErrTemplate != "" {
-		templ, err = template.New("noErr").Parse(*noErrTemplate)
-		if err != nil {
-			log.Fatalf("error parsing no-error-template: %v", err)
-		}
-	}
-
-	if err = logic(o, &build.Default, posn, templ); err != nil {
+	if err := logic(o, &build.Default, posn, *noErrReturnStr); err != nil {
 		log.Fatal(err)
 	}
 }

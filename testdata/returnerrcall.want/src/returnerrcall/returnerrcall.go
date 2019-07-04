@@ -8,7 +8,7 @@ import (
 func logic() (int, string) {
 	b, err := ioutil.ReadAll(nil)
 	if err != nil {
-		mylog.Fatal(err.Error())
+		log.Fatal(err.Error())
 		return 0, ""
 	}
 	return len(b), "hoi"
