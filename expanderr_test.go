@@ -31,6 +31,7 @@ func TestExpand(t *testing.T) {
 		{"NoReturnCaller", "testdata/noreturncaller.got/src/noreturncaller/noreturncaller.go", ":#77", ""},
 		{"NoErrReturn", "testdata/noerrreturn.got/src/noerrreturn/noerrreturn.go", ":#81", ""},
 		{"ReturnErrCall", "testdata/returnerrcall.got/src/returnerrcall/returnerrcall.go", ":#101", "log.Fatal(err.Error())"},
+		{"FunctionLiteral", "testdata/functionliteral.got/src/functionliteral/functionliteral.go", ":#87", ""},
 		// The following test spreads out one package over two files, exercising
 		// the code path for loading multiple files.
 		{"2Files1Pkg", "testdata/pkg.got/src/pkg/pkg2.go", ":#49", ""},

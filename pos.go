@@ -56,7 +56,7 @@ func parsePos(pos string) (filename string, startOffset, endOffset int, err erro
 		startOffset = parseOctothorpDecimal(offset[:comma])
 		endOffset = parseOctothorpDecimal(offset[comma+1:])
 	}
-	if startOffset < 0 || endOffset < 0 {
+	if startOffset < 1 || endOffset < startOffset {
 		err = fmt.Errorf("invalid offset %q in query position", offset)
 		return
 	}

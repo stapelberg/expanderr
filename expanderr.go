@@ -107,6 +107,9 @@ func signatureOf(info *types.Info, e *ast.CallExpr) (*types.Signature, error) {
 		case *types.Func:
 			// This is a static function call
 			return obj.Type().(*types.Signature), nil
+		case *types.Var:
+			// This is a function literal call
+			return obj.Type().(*types.Signature), nil
 		default:
 			// TODO: better error message: the function signature for <TODO> could not be found
 			//return nil, fmt.Errorf("unhandled: info.Uses[%v] = %T", funexpr, obj)
