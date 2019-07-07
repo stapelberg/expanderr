@@ -16,30 +16,34 @@ func TestExpand(t *testing.T) {
 	// t.Parallel()
 
 	for _, entry := range []struct {
-		name string
-		fn   string
-		posn string
+		name        string
+		fn          string
+		posn        string
+		errcallback string
 	}{
-		{"SingleErrorAfter", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#90"},
-		{"SingleErrorBefore", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#69"},
-		{"SingleErrorMiddle", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#81"},
-		{"NoReturn", "testdata/noreturn.got/src/noreturn/noreturn.go", ":#75"},
-		{"VariableAndError", "testdata/varanderror.got/src/varanderror/varanderror.go", ":#148"},
-		{"Comment", "testdata/comment.got/src/comment/comment.go", ":#90"},
-		{"CommentInline", "testdata/commentinline.got/src/commentinline/commentinline.go", ":#109"},
-		{"FunctionLiteral", "testdata/functionliteral.got/src/functionliteral/functionliteral.go", ":#87"},
+		{"SingleErrorAfter", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#90", ""},
+		{"SingleErrorBefore", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#69", ""},
+		{"SingleErrorMiddle", "testdata/singleerror.got/src/singleerror/singleerror.go", ":#81", ""},
+		{"NoReturn", "testdata/nocalleereturn.got/src/nocalleereturn/nocalleereturn.go", ":#75", ""},
+		{"VariableAndError", "testdata/varanderror.got/src/varanderror/varanderror.go", ":#148", ""},
+		{"Comment", "testdata/comment.got/src/comment/comment.go", ":#90", ""},
+		{"CommentInline", "testdata/commentinline.got/src/commentinline/commentinline.go", ":#109", ""},
+		{"NoReturnCaller", "testdata/noreturncaller.got/src/noreturncaller/noreturncaller.go", ":#77", ""},
+		{"NoErrReturn", "testdata/noerrreturn.got/src/noerrreturn/noerrreturn.go", ":#81", ""},
+		{"ReturnErrCall", "testdata/returnerrcall.got/src/returnerrcall/returnerrcall.go", ":#101", "log.Fatal(err.Error())"},
+		{"FunctionLiteral", "testdata/functionliteral.got/src/functionliteral/functionliteral.go", ":#87", ""},
 		// The following test spreads out one package over two files, exercising
 		// the code path for loading multiple files.
-		{"2Files1Pkg", "testdata/pkg.got/src/pkg/pkg2.go", ":#49"},
+		{"2Files1Pkg", "testdata/pkg.got/src/pkg/pkg2.go", ":#49", ""},
 		// MultiPkg calls a function in another not-compiled, non-stdlib package.
-		{"MultiPkg", "testdata/multipkg.got/src/multipkg/multipkg.go", ":#79"},
-		{"MultiPkgVendor", "testdata/multipkgvendor.got/src/multipkg/multipkg.go", ":#79"},
-		{"Underscore", "testdata/underscore.got/src/underscore/underscore.go", ":#162"},
-		{"IntroduceErr", "testdata/introduceerr.got/src/introduceerr/introduceerr.go", ":#176"},
-		{"NoIntroduce", "testdata/nointroduce.got/src/nointroduce/nointroduce.go", ":#165"},
-		{"PresentSingle", "testdata/presentsingle.got/src/presentsingle/presentsingle.go", ":#90"},
-		{"PresentDouble", "testdata/presentdouble.got/src/presentdouble/presentdouble.go", ":#105"},
-		{"CustomTypes", "testdata/customtypes.got/src/customtypes/customtypes.go", ":#191"},
+		{"MultiPkg", "testdata/multipkg.got/src/multipkg/multipkg.go", ":#79", ""},
+		{"MultiPkgVendor", "testdata/multipkgvendor.got/src/multipkg/multipkg.go", ":#79", ""},
+		{"Underscore", "testdata/underscore.got/src/underscore/underscore.go", ":#162", ""},
+		{"IntroduceErr", "testdata/introduceerr.got/src/introduceerr/introduceerr.go", ":#176", ""},
+		{"NoIntroduce", "testdata/nointroduce.got/src/nointroduce/nointroduce.go", ":#165", ""},
+		{"PresentSingle", "testdata/presentsingle.got/src/presentsingle/presentsingle.go", ":#90", ""},
+		{"PresentDouble", "testdata/presentdouble.got/src/presentdouble/presentdouble.go", ":#105", ""},
+		{"CustomTypes", "testdata/customtypes.got/src/customtypes/customtypes.go", ":#191", ""},
 	} {
 		entry := entry // copy
 		t.Run(entry.name, func(t *testing.T) {
@@ -66,7 +70,7 @@ func TestExpand(t *testing.T) {
 			}
 
 			var buf bytes.Buffer
-			if err := logic(&buf, &buildctx, entry.fn+entry.posn); err != nil {
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn, entry.errcallback); err != nil {
 				t.Fatal(err)
 			}
 
@@ -84,7 +88,7 @@ func TestExpand(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			if err := logic(&buf, &buildctx, entry.fn+entry.posn); err != nil {
+			if err := logic(&buf, &buildctx, entry.fn+entry.posn, entry.errcallback); err != nil {
 				t.Fatal(err)
 			}
 

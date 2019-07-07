@@ -61,11 +61,6 @@ func parseQueryPos(fset *token.FileSet, root *ast.File, pos string, needExact bo
 		return nil, fmt.Errorf("file %s not found in loaded program", filename)
 	}
 
-	start, end, err := fileOffsetToPos(file, startOffset, endOffset)
-	if err != nil {
-		return nil, err
-	}
-
 	// decrement startOffset as long as it points to <whitespace>|")", so that PathEnclosingInterval returns an ast.CallExpr
 	//log.Printf("filename = %q, startOffset = %d, endOffset = %d\n", filename, startOffset, endOffset)
 	b, err := ioutil.ReadFile(filename)
@@ -80,7 +75,7 @@ func parseQueryPos(fset *token.FileSet, root *ast.File, pos string, needExact bo
 	}
 	//log.Printf("after: %q", string(b[startOffset-5:endOffset+5]))
 
-	start, end, err = fileOffsetToPos(file, startOffset, endOffset)
+	start, end, err := fileOffsetToPos(file, startOffset, endOffset)
 	if err != nil {
 		return nil, err
 	}
@@ -379,7 +374,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 	}
 
 	if e.caller.Results == nil {
-		return fmt.Errorf("current function returns no values, cannot return error")
+		return nil
 	}
 
 	e.results = make([]ast.Expr, len(e.caller.Results.List))
@@ -402,7 +397,47 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 	return nil
 }
 
-func logic(w io.Writer, buildctx *build.Context, posn string) error {
+// this function either returns just the return values of the function or, if there are no errors
+// returned, will also add in the no-error-return-template
+func (e *expansion) getFinalOutput(noReturnStr string, errName string) ([]ast.Stmt, error) {
+	var normalReturn = &ast.ReturnStmt{Results: e.results}
+
+	var returnsError = true
+	if res := e.caller.Results; res == nil {
+		returnsError = false
+	} else if list := res.List; len(list) == 0 {
+		returnsError = false
+	} else if id, ok := list[len(list)-1].Type.(*ast.Ident); ok && id.Name != "error" {
+		returnsError = false
+	}
+
+	if returnsError {
+		return []ast.Stmt{normalReturn}, nil
+	}
+
+	if noReturnStr == "" { // default output when no error retuned
+		return []ast.Stmt{&ast.ExprStmt{
+			X: &ast.CallExpr{
+				Fun: &ast.Ident{Name: "panic"},
+				Args: []ast.Expr{
+					&ast.Ident{Name: "err"},
+				},
+			},
+		}}, nil
+	}
+
+	noReturnExpr, err := parser.ParseExpr(noReturnStr)
+	if err != nil {
+		return nil, fmt.Errorf("parsing template result into ast: %v", err)
+	}
+
+	return []ast.Stmt{
+		&ast.ExprStmt{X: noReturnExpr},
+		normalReturn,
+	}, nil
+}
+
+func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error {
 	e := expansion{
 		fset: token.NewFileSet(),
 	}
@@ -473,14 +508,19 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 	case 0:
 		// nothing to replace, i.e. keep the original *ast.CallExpr
 		repl = []ast.Node{e.ce}
-	case 1: // TODO: verify the return value is of type error
-
+	case 1:
 		// TODO: check if this CallExpr is within an AssignStmt. if so, replace the AssignStmt instead
 		if parent := e.parent(subject); parent != nil {
 			if stmt, ok := parent.(*ast.AssignStmt); ok {
 				subject = stmt
 			}
 		}
+
+		outputStmt, err := e.getFinalOutput(noReturnStr, "err")
+		if err != nil {
+			return err
+		}
+
 		// e.g. os.Remove(…) → if err := os.Remove(…); err != nil { return 0, err }
 		repl = []ast.Node{&ast.IfStmt{
 			Init: &ast.AssignStmt{
@@ -494,9 +534,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 				Y:  &ast.Ident{Name: "nil"},
 			},
 			Body: &ast.BlockStmt{
-				List: []ast.Stmt{
-					&ast.ReturnStmt{Results: e.results},
-				},
+				List: outputStmt,
 			},
 		}}
 	default:
@@ -540,6 +578,11 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 			as.Lhs = append(as.Lhs, &ast.Ident{Name: "err"})
 		}
 
+		outputStmt, err := e.getFinalOutput(noReturnStr, "err")
+		if err != nil {
+			return err
+		}
+
 		if !onlyUnderscore && as.Tok == token.DEFINE {
 			// Insert a new *ast.IfStmt after the *ast.CallExpr.
 			repl = []ast.Node{
@@ -551,9 +594,7 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 						Y:  &ast.Ident{Name: "nil"},
 					},
 					Body: &ast.BlockStmt{
-						List: []ast.Stmt{
-							&ast.ReturnStmt{Results: e.results},
-						},
+						List: outputStmt,
 					},
 				},
 			}
@@ -617,8 +658,9 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 		// Hack: inline comments (e.g. os.Remove("/foo" /* path */)) get lost
 		// when formatting node, so we string-replace the formatted CallExpr
 		// with the original CallExpr.
+
 		var stmtFmt, ceFmt bytes.Buffer
-		if err := format.Node(&stmtFmt, e.fset, node); err != nil {
+		if err := format.Node(&stmtFmt, token.NewFileSet(), node); err != nil {
 			return fmt.Errorf("formatting replacement: %v", err)
 		}
 		if err := format.Node(&ceFmt, e.fset, e.ce); err != nil {
@@ -678,11 +720,11 @@ func logic(w io.Writer, buildctx *build.Context, posn string) error {
 }
 
 var (
-	wFlag      = flag.String("w", "", "write")
-	formatFlag = flag.String("format", "", "output format (source, json). defaults to 'source'")
+	wFlag          = flag.String("w", "", "write")
+	formatFlag     = flag.String("format", "", "output format (source, json). defaults to 'source'")
+	cpuprofile     = flag.String("cpuprofile", "", "write cpu profile `file`")
+	noErrReturnStr = flag.String("no-error-callback", "", "function call to be used if there is no error return value. ex: 'log.Fatalf(\"boom: %v\", err)'. defaults to 'panic(err)'")
 )
-
-var cpuprofile = flag.String("cpuprofile", "", "write cpu profile `file`")
 
 func main() {
 	flag.Parse()
@@ -715,7 +757,7 @@ func main() {
 		o = f
 	}
 
-	if err := logic(o, &build.Default, posn); err != nil {
+	if err := logic(o, &build.Default, posn, *noErrReturnStr); err != nil {
 		log.Fatal(err)
 	}
 }
