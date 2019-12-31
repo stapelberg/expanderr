@@ -5,6 +5,11 @@
   :type 'string
   :group 'expanderr)
 
+(defcustom go-expanderr-show-error-buffer t
+  "Whether to show a the error buffer when `go-expanderr' failed."
+  :type 'boolean
+  :group 'expanderr)
+
 (defun go-expanderr ()
   "Expand the Call Expression before/under the cursor to check errors."
   (interactive)
@@ -43,7 +48,8 @@
                   (message "Applied expanderr"))
                 (if errbuf (gofmt--kill-error-buffer errbuf)))
             (message "Could not apply expanderr")
-            (if errbuf (gofmt--process-errors (buffer-file-name) tmpfile errbuf))))
+            (when (and errbuf go-expanderr-show-error-buffer)
+	      (gofmt--process-errors (buffer-file-name) tmpfile errbuf))))
 
       (kill-buffer patchbuf)
       (delete-file tmpfile))))
