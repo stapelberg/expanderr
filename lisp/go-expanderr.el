@@ -32,7 +32,7 @@
 
 	  (save-buffer)
           (setq expanderr-command go-expanderr-command)
-          (setq our-expanderr-args (list "-w" tmpfile "-no-error-callback" "loglogloglog.Fatal(err)"
+          (setq our-expanderr-args (list "-w" tmpfile "-no-error-callback" "log.Fatal(err)"
 					 (concat
 					  (file-truename buffer-file-name)
 					  (format ":#%d" (position-bytes (point))))))
