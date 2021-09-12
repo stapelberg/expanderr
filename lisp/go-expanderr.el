@@ -54,7 +54,6 @@
       (kill-buffer patchbuf)
       (delete-file tmpfile))))
 
-(add-hook 'go-mode-hook (lambda ()
-			  (local-set-key (kbd "C-c C-e") #'go-expanderr)))
+(define-key go-mode-map (kbd "C-c C-e") #'go-expanderr)
 
 (provide 'go-expanderr)
