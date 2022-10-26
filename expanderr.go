@@ -715,6 +715,9 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 			return err
 		}
 	} else {
+		for _, w := range warnings {
+			log.Print(w)
+		}
 		if _, err := w.Write(formatted); err != nil {
 			return err
 		}
