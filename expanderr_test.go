@@ -93,9 +93,10 @@ func TestExpand(t *testing.T) {
 			}
 
 			var change struct {
-				Start int      `json:"start"`
-				End   int      `json:"end"`
-				Lines []string `json:"lines"`
+				Start    int      `json:"start"`
+				End      int      `json:"end"`
+				Lines    []string `json:"lines"`
+				Warnings []string `json:"warnings"`
 			}
 			if err := json.Unmarshal(buf.Bytes(), &change); err != nil {
 				t.Fatal(err)

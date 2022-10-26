@@ -339,7 +339,7 @@ func (e *expansion) parent(n ast.Node) ast.Node {
 	return nil
 }
 
-func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
+func (e *expansion) typeCheck(pkgname string, files []*ast.File, addWarnFunc func(string)) error {
 	e.info = &types.Info{
 		Uses:       make(map[*ast.Ident]types.Object),
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
@@ -349,7 +349,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 	conf := types.Config{
 		Importer: defaultImporter(),
 		Error: func(err error) {
-			// log.Printf("ignoring type-checking error: %v", err)
+			addWarnFunc(fmt.Sprintf("ignoring type-checking error: %v", err))
 		}, // keep going on errors
 	}
 	pkg, _ := conf.Check(pkgname, e.fset, files, e.info)
@@ -463,7 +463,9 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 	// build.Default, so we need to change build.Default
 	build.Default = *buildctx
 
-	if err := e.typeCheck("main", []*ast.File{e.file}); err != nil {
+	var warnings []string
+	var warnFunc = func(warning string) { warnings = append(warnings, warning) }
+	if err := e.typeCheck("main", []*ast.File{e.file}, warnFunc); err != nil {
 		if err != errUnknownSignature {
 			return err
 		}
@@ -496,7 +498,7 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 			}
 			files = append(files, f)
 		}
-		if err := e.typeCheck(e.pkg.Name(), files); err != nil {
+		if err := e.typeCheck(e.pkg.Name(), files, warnFunc); err != nil {
 			return err
 		}
 	}
@@ -700,13 +702,15 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 			}
 		}
 		if err := json.NewEncoder(w).Encode(struct {
-			Start int      `json:"start"`
-			End   int      `json:"end"`
-			Lines []string `json:"lines"`
+			Start    int      `json:"start"`
+			End      int      `json:"end"`
+			Lines    []string `json:"lines"`
+			Warnings []string `json:"warnings"`
 		}{
-			Start: start,
-			End:   end,
-			Lines: lines,
+			Start:    start,
+			End:      end,
+			Lines:    lines,
+			Warnings: warnings,
 		}); err != nil {
 			return err
 		}
@@ -765,7 +769,7 @@ func main() {
 				Error: err.Error(),
 			})
 			if jsonErr != nil {
-				log.Fatal(err)
+				log.Println(err)
 				log.Fatal(jsonErr)
 			}
 			return
