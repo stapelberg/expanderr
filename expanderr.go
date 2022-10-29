@@ -339,7 +339,7 @@ func (e *expansion) parent(n ast.Node) ast.Node {
 	return nil
 }
 
-func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
+func (e *expansion) typeCheck(pkgname string, files []*ast.File, addWarnFunc func(string)) error {
 	e.info = &types.Info{
 		Uses:       make(map[*ast.Ident]types.Object),
 		Selections: make(map[*ast.SelectorExpr]*types.Selection),
@@ -349,7 +349,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 	conf := types.Config{
 		Importer: defaultImporter(),
 		Error: func(err error) {
-			log.Printf("ignoring type-checking error: %v", err)
+			addWarnFunc(fmt.Sprintf("ignoring type-checking error: %v", err))
 		}, // keep going on errors
 	}
 	pkg, _ := conf.Check(pkgname, e.fset, files, e.info)
@@ -398,7 +398,7 @@ func (e *expansion) typeCheck(pkgname string, files []*ast.File) error {
 }
 
 // this function either returns just the return values of the function or, if there are no errors
-// returned, will also add in the no-error-return-template
+// returned, will also add in the no-error-callback
 func (e *expansion) getFinalOutput(noReturnStr string, errName string) ([]ast.Stmt, error) {
 	var normalReturn = &ast.ReturnStmt{Results: e.results}
 
@@ -463,7 +463,9 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 	// build.Default, so we need to change build.Default
 	build.Default = *buildctx
 
-	if err := e.typeCheck("main", []*ast.File{e.file}); err != nil {
+	var warnings []string
+	var warnFunc = func(warning string) { warnings = append(warnings, warning) }
+	if err := e.typeCheck("main", []*ast.File{e.file}, warnFunc); err != nil {
 		if err != errUnknownSignature {
 			return err
 		}
@@ -496,7 +498,7 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 			}
 			files = append(files, f)
 		}
-		if err := e.typeCheck(e.pkg.Name(), files); err != nil {
+		if err := e.typeCheck(e.pkg.Name(), files, warnFunc); err != nil {
 			return err
 		}
 	}
@@ -700,17 +702,22 @@ func logic(w io.Writer, buildctx *build.Context, posn, noReturnStr string) error
 			}
 		}
 		if err := json.NewEncoder(w).Encode(struct {
-			Start int      `json:"start"`
-			End   int      `json:"end"`
-			Lines []string `json:"lines"`
+			Start    int      `json:"start"`
+			End      int      `json:"end"`
+			Lines    []string `json:"lines"`
+			Warnings []string `json:"warnings"`
 		}{
-			Start: start,
-			End:   end,
-			Lines: lines,
+			Start:    start,
+			End:      end,
+			Lines:    lines,
+			Warnings: warnings,
 		}); err != nil {
 			return err
 		}
 	} else {
+		for _, w := range warnings {
+			log.Print(w)
+		}
 		if _, err := w.Write(formatted); err != nil {
 			return err
 		}
@@ -758,6 +765,18 @@ func main() {
 	}
 
 	if err := logic(o, &build.Default, posn, *noErrReturnStr); err != nil {
+		if *formatFlag == "json" {
+			jsonErr := json.NewEncoder(o).Encode(struct {
+				Error string `json:"error"`
+			}{
+				Error: err.Error(),
+			})
+			if jsonErr != nil {
+				log.Println(err)
+				log.Fatal(jsonErr)
+			}
+			return
+		}
 		log.Fatal(err)
 	}
 }
